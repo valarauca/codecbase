@@ -2,24 +2,9 @@
 #[macro_use]
 mod macros;
 mod codec;
-mod base;
 
 pub use codec::{Codec,Reader};
-pub use base::{Payload,PayloadU24,PayloadU16,PayloadU8};
-pub use codec::{
-    encode_u8,
-    decode_u8,
-    read_u8,
-    encode_u16,
-    decode_u16,
-    read_u16,
-    encode_u24,
-    decode_u24,
-    read_u24,
-    encode_u32,
-    decode_u32,
-    read_u32
-};
+//pub use base::{Payload,PayloadU24,PayloadU16,PayloadU8};
 
 
 //
@@ -91,46 +76,3 @@ fn validate_reader() {
     }
 }
 
-//Encode/Decode
-#[test]
-fn validate_encode_decode_read() {
-    
-    //Encode, Decode, and Read functions are for insert, and removing
-    //integers from values
-    
-    
-    //build test data
-    let mut v: Vec<u8> = vec![0,1,2,3,4,5,6,7,8,9];
-    
-    //validate date data
-    assert_eq!(v.len(), 10);
-    assert_eq!(v.as_slice(), &[0,1,2,3,4,5,6,7,8,9]);
-    
-    //encode a u8 value
-    encode_u8(80, &mut v);
-    assert_eq!(v.len(), 11);
-    assert_eq!(v.as_slice(), &[0,1,2,3,4,5,6,7,8,9,80]);
-}
-
-/*
-//PayloadU8
-#[test]
-fn validate_payloadu8() {
-    
-    //A zero-sized type that wrapped Vec<u8> to
-    //represent a u8 value is encoded on the start of it
-
-    //build test data
-    let x = PayloadU8::new(Vec::new());
-    assert_eq!( x.len(), 0);
-
-    //create data
-    let test_data: [u8;11] = [10,0,1,2,3,4,5,6,7,8,9];
-    let mut r = Reader::init( &test_data);
-    
-    //build a payload
-    let payload = PayloadU8::read(&mut r).unwrap();
-    assert_eq!(payload.len(), 10);
-    assert_eq!(payload.0.as_slice(), &[0,1,2,3,4,5,6,7,8,9]);
-}
-*/

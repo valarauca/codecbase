@@ -52,10 +52,8 @@ impl Codec for PayloadU24 {
   }
 
   fn read(r: &mut Reader) -> Option<PayloadU24> {
-    let len = try_ret!(codec::read_u24(r)) as usize;
-    let sub = try_ret!(r.sub(len));
-    let body = sub.rest().to_vec();
-    Some(PayloadU24(body))
+    let s = try_ret!(r.u24_encoded_slice());
+    Some(PayloadU24::new(s.to_vec()))
   }
 }
 
@@ -78,7 +76,7 @@ impl Codec for PayloadU16 {
   }
 
   fn read(r: &mut Reader) -> Option<PayloadU16> {
-    let len = try_ret!(codec::read_u16(r)) as usize;
+    let len = try_ret!(r.read_u16());
     let sub = try_ret!(r.sub(len));
     let body = sub.rest().to_vec();
     Some(PayloadU16(body))
@@ -103,19 +101,19 @@ impl<'a> PayloadU8<'a> {
   pub fn len(&self) -> usize { self.0.len() }
 }
 
+/*
 impl<'a> Codec for PayloadU8<'a> {
   fn encode(&self, bytes: &mut Vec<u8>) {
     codec::encode_u8(self.0.len() as u8, bytes);
     bytes.extend_from_slice(self.0.as_ref());
   }
 
-  fn read(r: &'a mut Reader<'a>) -> Option<PayloadU8<'a>> {
-    let slice: &'a [u8] = match r.u8_encoded_slice() {
+  fn read<'b,'c>(r: &'b mut Reader<'b>) -> Option<PayloadU8<'c>> {
+    let slice = match r.u8_encoded_slice() {
       Option::None => return None,
       Option::Some(x) => x,
     };
-    //Some(PayloadU8::<'a>::from_slice(slice))
-    None
+    Some(PayloadU8::from_slice(slice))
   }
 }
-
+*/
