@@ -56,10 +56,25 @@ macro_rules! payloadtraits {
       r.$decode_func()
     }
   }
+  impl<'a> From<&'a [u8]> for $type_with_lifetime {
+    fn from(x: &'a [u8]) -> Self {
+      $type_for_building(Cow::Borrowed(x))
+    }
+  }
+  impl<'a> From<Vec<u8>> for $type_with_lifetime {
+    fn from(x: Vec<u8>) -> Self {
+      $type_for_building(Cow::Owned(x))
+    }
+  }
+  impl<'a> Into<Vec<u8>> for $type_with_lifetime {
+    fn into(self) -> Vec<u8> {
+      self.0.into_owned()
+    }
+  }
 )    
 }
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq,Clone)]
 pub struct PayloadU8<'a>(pub Cow<'a,[u8]>);
 payloadtraits!(
   PayloadU8<'a>,
@@ -68,7 +83,7 @@ payloadtraits!(
   encode_u8,
   u8_payload
 );
-#[derive(Debug)]
+#[derive(Debug,PartialEq,Clone)]
 pub struct PayloadU16<'a>(pub Cow<'a,[u8]>);
 payloadtraits!(
   PayloadU16<'a>,
@@ -77,7 +92,7 @@ payloadtraits!(
   encode_u16,
   u16_payload
 );
-#[derive(Debug)]
+#[derive(Debug,PartialEq,Clone)]
 pub struct PayloadU24<'a>(pub Cow<'a,[u8]>);
 payloadtraits!(
   PayloadU24<'a>,
@@ -86,7 +101,7 @@ payloadtraits!(
   encode_u24,
   u24_payload
 );
-#[derive(Debug)]
+#[derive(Debug,PartialEq,Clone)]
 pub struct PayloadU32<'a>(pub Cow<'a,[u8]>);
 payloadtraits!(
   PayloadU32<'a>,
@@ -95,7 +110,7 @@ payloadtraits!(
   encode_u32,
   u32_payload
 );
-#[derive(Debug)]
+#[derive(Debug,PartialEq,Clone)]
 pub struct PayloadU64<'a>(pub Cow<'a,[u8]>);
 payloadtraits!(
   PayloadU64<'a>,
@@ -107,10 +122,56 @@ payloadtraits!(
 
 
                
-               
+#[derive(Debug,PartialEq,Clone)]
 pub struct Payload<'a>(pub Cow<'a,[u8]>);
-
-
+impl<'a> Payload<'a> {
+  pub fn new(bytes: Vec<u8>) -> Self {
+    Payload(Cow::Owned(bytes))
+  }
+  pub fn from_slice(data: &'a [u8]) -> Self {
+    Payload(Cow::Borrowed(data))
+  }
+  #[inline(always)]
+  pub fn len(&self) ->  usize {
+    self.0.len()
+  }
+  pub fn to_str(&'a self) -> Option<&'a str> {
+    use std::str::from_utf8;
+    match from_utf8(&self.0) {
+      Err(_) => None,
+      Ok(x) => Some(x)
+    }
+  }
+  pub fn to_slice(&'a self) -> &'a [u8] {
+    &self.0
+  }
+  pub fn to_reader(&'a self) -> Reader<'a> {
+    Reader::init(&self.0)
+  }
+}
+impl<'a> Codec<'a> for Payload<'a> {
+  fn encode(&self, bytes: &mut Vec<u8>) {
+    extend(&self.0,bytes);
+  }
+  fn read(r: &mut Reader<'a>) -> Option<Self> {
+    Some(Payload(Cow::Borrowed(r.rest())))
+  }
+}
+impl<'a> From<&'a [u8]> for Payload<'a> {
+ fn from(x: &'a [u8]) -> Self {
+    Payload(Cow::Borrowed(x))
+  }
+}
+impl<'a> From<Vec<u8>> for Payload<'a> {
+  fn from(x: Vec<u8>) -> Self {
+    Payload(Cow::Owned(x))
+  }
+}
+impl<'a> Into<Vec<u8>> for Payload<'a> {
+  fn into(self) -> Vec<u8> {
+    self.0.into_owned()
+  }
+}
 
 
 ///Reader holds a borrowed buffer. It uses this borrow to hold several
@@ -120,6 +181,16 @@ pub struct Payload<'a>(pub Cow<'a,[u8]>);
 pub struct Reader<'a> {
   buf: &'a [u8],
   offs: usize
+}
+impl<'a> From<&'a [u8]> for Reader<'a> {
+ fn from(x: &'a [u8]) -> Self {
+    Reader::init(x)
+  }
+}
+impl<'a> From<&'a Vec<u8>> for Reader<'a> {
+  fn from(x: &'a Vec<u8>) -> Self {
+    Reader::init(x.as_slice())
+  }
 }
 
 impl<'a> Reader<'a> {
@@ -425,7 +496,6 @@ fn test_encode_decode_u8() {
  * Encoding U16
  *
  */
-
 pub fn encode_u16(v: u16, bytes: &mut Vec<u8>) {
   bytes.push((v >> 8) as u8);
   bytes.push(v as u8);
@@ -487,8 +557,10 @@ fn test_encode_decode_u16() {
   assert_eq!(words[1].to_str().unwrap(), "World");
 }
 
-
-
+/*
+ * Encoding U24
+ *
+ */
 pub fn encode_u24(v: u32, bytes: &mut Vec<u8>) {
   bytes.push((v >> 16) as u8);
   bytes.push((v >> 8) as u8);
@@ -551,7 +623,10 @@ fn test_encode_decode_u24() {
   assert_eq!(words[1].to_str().unwrap(), "World");
 }
 
-
+/*
+ * Encoding U32
+ *
+ */
 pub fn encode_u32(v: u32, bytes: &mut Vec<u8>) {
   bytes.push((v >> 24) as u8);
   bytes.push((v >> 16) as u8);
@@ -620,7 +695,10 @@ fn test_encode_decode_u32() {
   assert_eq!(words[1].to_str().unwrap(), "World");
 }
 
-
+/*
+ * Encoding U64
+ *
+ */
 pub fn encode_u64(v: u64, bytes: &mut Vec<u8>) {
   let mut b64 = [0u8; 8];
   put_u64(v, &mut b64);
