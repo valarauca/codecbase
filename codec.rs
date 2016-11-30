@@ -7,9 +7,24 @@ use std::borrow::Cow;
 pub fn extend(x: &[u8], bytes: &mut Vec<u8>) {
   bytes.extend_from_slice(x)
 }
+///Handle non-allocating string conversion
+#[inline(always)]
+pub fn to_str<'a>(x: &'a [u8]) -> Option<&'a str> {
+  use std::str::from_utf8;
+  match from_utf8(x) {
+    Err(_) => None,
+    Ok(x) => Some(x)
+  }
+}
 
 macro_rules! payloadtraits {
-  ($type_with_lifetime: ty,$type_for_building:expr) => (
+(
+  $type_with_lifetime: ty,
+  $type_for_building:expr,
+  $len_type: ty,
+  $encode_func: ident,
+  $decode_func: ident
+) => (
   impl<'a> $type_with_lifetime {
     pub fn new(bytes: Vec<u8>) -> Self {
       $type_for_building(Cow::Owned(bytes))
@@ -21,30 +36,74 @@ macro_rules! payloadtraits {
     pub fn len(&self) ->  usize {
       self.0.len()
     }
+    pub fn to_str(&'a self) -> Option<&'a str> {
+      use std::str::from_utf8;
+      match from_utf8(&self.0) {
+        Err(_) => None,
+        Ok(x) => Some(x)
+      }
+    }
+    pub fn to_slice(&'a self) -> &'a [u8] {
+      &self.0
+    }
+  }
+  impl<'a> Codec<'a> for $type_with_lifetime {
+    fn encode(&self, bytes: &mut Vec<u8>) {
+      $encode_func(self.len() as $len_type, bytes);
+      extend(&self.0,bytes);
+    }
+    fn read(r: &mut Reader<'a>) -> Option<Self> {
+      r.$decode_func()
+    }
   }
 )    
 }
 
 #[derive(Debug)]
 pub struct PayloadU8<'a>(pub Cow<'a,[u8]>);
-payloadtraits!(PayloadU8<'a>,PayloadU8);
-impl<'a> Codec for PayloadU8<'a> {
-  fn encode(&self, bytes: &mut Vec<u8>) {
-    encode_u8(self.len() as u8, bytes);
-    extend(&self.0,bytes);
-  }
-  fn read<'b>(r: &mut Reader<'b>) -> Option<PayloadU8<'b>> {
-     r.u8_payload()
-  }
-}
+payloadtraits!(
+  PayloadU8<'a>,
+  PayloadU8,
+  u8,
+  encode_u8,
+  u8_payload
+);
 #[derive(Debug)]
 pub struct PayloadU16<'a>(pub Cow<'a,[u8]>);
+payloadtraits!(
+  PayloadU16<'a>,
+  PayloadU16,
+  u16,
+  encode_u16,
+  u16_payload
+);
 #[derive(Debug)]
 pub struct PayloadU24<'a>(pub Cow<'a,[u8]>);
+payloadtraits!(
+  PayloadU24<'a>,
+  PayloadU24,
+  u32,
+  encode_u24,
+  u24_payload
+);
 #[derive(Debug)]
 pub struct PayloadU32<'a>(pub Cow<'a,[u8]>);
+payloadtraits!(
+  PayloadU32<'a>,
+  PayloadU32,
+  u32,
+  encode_u32,
+  u32_payload
+);
 #[derive(Debug)]
 pub struct PayloadU64<'a>(pub Cow<'a,[u8]>);
+payloadtraits!(
+  PayloadU64<'a>,
+  PayloadU64,
+  u64,
+  encode_u64,
+  u64_payload
+);
 
 
                
@@ -267,14 +326,14 @@ impl<'a> Reader<'a> {
 }
 
 /// Things we can encode and read from a Reader.
-pub trait Codec: Debug + Sized {
+pub trait Codec<'a>: Debug + Sized {
 
   /// Encode yourself by appending onto `bytes`.
   fn encode(&self, bytes: &mut Vec<u8>);
   
   /// Read one of these from the front of `bytes` and
   /// return it.
-  fn read<'a>(r: &mut Reader<'a>) -> Option<Self>;
+  fn read(r: &mut Reader<'a>) -> Option<Self>;
 
   /// Convenience function to get the results of `encode()`.
   fn get_encoding(&self) -> Vec<u8> {
@@ -285,24 +344,116 @@ pub trait Codec: Debug + Sized {
 }
 
 
-/* Encoding functions. */
+/* 
+ * Encoding functions.
+ *
+ */
+
+
+
+/*
+ * Encoding U8
+ *
+ */
 pub fn encode_u8(v: u8, bytes: &mut Vec<u8>) {
   bytes.push(v);
 }
-
 pub fn decode_u8(bytes: &[u8]) -> Option<u8> {
   Some(bytes[0])
 }
+pub fn encode_vec_u8<'a,T: Codec<'a>>(bytes: &mut Vec<u8>, items: &[T]) {
+  let mut sub: Vec<u8> = Vec::new();
+  for i in items {
+    i.encode(&mut sub);
+  }
+  debug_assert!(sub.len() <= 0xff);
+  encode_u8(sub.len() as u8, bytes);
+  bytes.append(&mut sub);
+}
+pub fn read_vec_u8<'a,T: Codec<'a>>(r: &mut Reader<'a>)-> Option<Vec<T>> {
+  let len = try_ret!(r.read_u8());
+  let mut ret: Vec<T> = Vec::with_capacity(len);
+  let mut sub = try_ret!(r.sub(len));
+  while sub.any_left() {
+    ret.push(try_ret!(T::read(&mut sub)));
+  }
+  Some(ret)
+}
+#[test]
+fn test_encode_decode_u8() {
+  
+  /*
+   * test from Reader::init
+   */
+  let mut x = Vec::new();
+  encode_u8(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(x.len(), 11);
+  assert_eq!(decode_u8(x.as_slice()), Some(10u8));
+  let mut r = Reader::init(x.as_slice());
+  let p = r.u8_payload().unwrap();
+  assert_eq!(p.len(), 10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
 
+  /*
+   * test from PayloadU8::read( )
+   */
+  let mut x = Vec::new();
+  encode_u8(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  let mut r = Reader::init(x.as_slice());
+  let p = PayloadU8::read(&mut r).unwrap();
+  assert_eq!(p.len(),10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(r.any_left(), false);
+
+  /*
+   * Test Bulk encoding/decoding
+   */
+  let x = PayloadU8::from_slice(b"Hello");
+  let y = PayloadU8::from_slice(b"World");
+  let mut bytes = Vec::new();
+  encode_vec_u8(&mut bytes, &[x,y]);
+  let mut out = Reader::init(bytes.as_slice());
+  let words: Vec<PayloadU8> = read_vec_u8(&mut out).unwrap();
+  assert_eq!(words.len(), 2);
+  assert_eq!(words[0].to_str().unwrap(), "Hello");
+  assert_eq!(words[1].to_str().unwrap(), "World");
+}
+    
 
 pub fn encode_u16(v: u16, bytes: &mut Vec<u8>) {
   bytes.push((v >> 8) as u8);
   bytes.push(v as u8);
 }
-
 pub fn decode_u16(bytes: &[u8]) -> Option<u16> {
   Some(((bytes[0] as u16) << 8) | bytes[1] as u16)
 }
+#[test]
+fn test_encode_decode_u16() {
+    
+  //test from Reader::init
+  let mut x = Vec::new();
+  encode_u16(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(x.len(),12);
+  assert_eq!(decode_u16(x.as_slice()), Some(10u16));
+  let mut r = Reader::init(x.as_slice());
+  let p = r.u16_payload().unwrap();
+  assert_eq!(p.len(), 10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
+
+  //test from the PayLoadU8::read route
+  let mut x = Vec::new();
+  encode_u16(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  let mut r = Reader::init(x.as_slice());
+  let p = PayloadU16::read(&mut r).unwrap();
+  assert_eq!(p.len(),10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(r.any_left(), false);
+}
+
 
 
 pub fn encode_u24(v: u32, bytes: &mut Vec<u8>) {
@@ -310,9 +461,32 @@ pub fn encode_u24(v: u32, bytes: &mut Vec<u8>) {
   bytes.push((v >> 8) as u8);
   bytes.push(v as u8);
 }
-
 pub fn decode_u24(bytes: &[u8]) -> Option<u32> {
   Some(((bytes[0] as u32) << 16) | ((bytes[1] as u32) << 8) | bytes[2] as u32)
+}
+#[test]
+fn test_encode_decode_u24() {
+    
+  //test from Reader::init
+  let mut x = Vec::new();
+  encode_u24(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(x.len(),13);
+  assert_eq!(decode_u24(x.as_slice()), Some(10u32));
+  let mut r = Reader::init(x.as_slice());
+  let p = r.u24_payload().unwrap();
+  assert_eq!(p.len(), 10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
+
+  //test from the PayLoadU8::read route
+  let mut x = Vec::new();
+  encode_u24(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  let mut r = Reader::init(x.as_slice());
+  let p = PayloadU24::read(&mut r).unwrap();
+  assert_eq!(p.len(),10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(r.any_left(), false);
 }
 
 
@@ -322,7 +496,6 @@ pub fn encode_u32(v: u32, bytes: &mut Vec<u8>) {
   bytes.push((v >> 8) as u8);
   bytes.push(v as u8);
 }
-
 pub fn decode_u32(bytes: &[u8]) -> Option<u32> {
   Some(
        ((bytes[0] as u32) << 24) |
@@ -331,6 +504,30 @@ pub fn decode_u32(bytes: &[u8]) -> Option<u32> {
        bytes[3] as u32
       )
 }
+#[test]
+fn test_encode_decode_u32() {
+    
+  //test from Reader::init
+  let mut x = Vec::new();
+  encode_u32(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(x.len(),14);
+  assert_eq!(decode_u32(x.as_slice()), Some(10u32));
+  let mut r = Reader::init(x.as_slice());
+  let p = r.u32_payload().unwrap();
+  assert_eq!(p.len(), 10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
+
+  //test from the PayLoadU8::read route
+  let mut x = Vec::new();
+  encode_u32(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  let mut r = Reader::init(x.as_slice());
+  let p = PayloadU32::read(&mut r).unwrap();
+  assert_eq!(p.len(),10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(r.any_left(), false);
+}
 
 
 pub fn encode_u64(v: u64, bytes: &mut Vec<u8>) {
@@ -338,7 +535,6 @@ pub fn encode_u64(v: u64, bytes: &mut Vec<u8>) {
   put_u64(v, &mut b64);
   bytes.extend_from_slice(&b64);
 }
-
 pub fn put_u64(v: u64, bytes: &mut [u8]) {
   bytes[0] = (v >> 56) as u8;
   bytes[1] = (v >> 48) as u8;
@@ -349,7 +545,6 @@ pub fn put_u64(v: u64, bytes: &mut [u8]) {
   bytes[6] = (v >> 8) as u8;
   bytes[7] = v as u8;
 }
-
 pub fn decode_u64(bytes: &[u8]) -> Option<u64> {
   Some(
        ((bytes[0] as u64) << 56) |
@@ -362,24 +557,33 @@ pub fn decode_u64(bytes: &[u8]) -> Option<u64> {
        bytes[7] as u64
       )
 }
+#[test]
+fn test_encode_decode_u64() {
+    
+  //test from Reader::init
+  let mut x = Vec::new();
+  encode_u64(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(x.len(),18);
+  assert_eq!(decode_u64(x.as_slice()), Some(10u64));
+  let mut r = Reader::init(x.as_slice());
+  let p = r.u64_payload().unwrap();
+  assert_eq!(p.len(), 10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
 
-/*
-pub fn encode_vec_u8<'a,T>(bytes: &'a mut Vec<u8>, items: &'a [T])
-where T: Codec+'a
-{
-  let mut sub: Vec<u8> = Vec::new();
-  for i in items {
-    i.encode(&mut sub);
-  }
-
-  debug_assert!(sub.len() <= 0xff);
-  encode_u8(sub.len() as u8, bytes);
-  bytes.append(&mut sub);
+  //test from the PayLoadU8::read route
+  let mut x = Vec::new();
+  encode_u64(10,&mut x);
+  x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
+  let mut r = Reader::init(x.as_slice());
+  let p = PayloadU64::read(&mut r).unwrap();
+  assert_eq!(p.len(),10);
+  assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
+  assert_eq!(r.any_left(), false);
 }
 
-pub fn encode_vec_u16<'a,T>(bytes: &'a mut Vec<u8>, items: &'a [T])
-where T: Codec+'a
-{
+/*
+pub fn encode_vec_u16<'a,T>(bytes: &mut Vec<u8>, items: &[T])
   let mut sub: Vec<u8> = Vec::new();
   for i in items {
     i.encode(&mut sub);
@@ -389,10 +593,7 @@ where T: Codec+'a
   encode_u16(sub.len() as u16, bytes);
   bytes.append(&mut sub);
 }
-
 pub fn encode_vec_u24<'a,T>(bytes: &'a mut Vec<u8>, items: &'a [T])
-where T: Codec+'a
-{
   let mut sub: Vec<u8> = Vec::new();
   for i in items {
     i.encode(&mut sub);
@@ -405,8 +606,6 @@ where T: Codec+'a
 
 pub fn read_vec_u8<'a,T>(r: &'a mut Reader)
 -> Option<Vec<T>>
-where T: Codec+'a
-{
   let mut ret: Vec<T> = Vec::new();
   let len = try_ret!(r.read_u8());
   let mut sub = try_ret!(r.sub(len));
@@ -420,8 +619,6 @@ where T: Codec+'a
 
 pub fn read_vec_u16<'a,T>(r: &'a mut Reader)
 -> Option<Vec<T>>
-where T: Codec+'a
-{
   let mut ret: Vec<T> = Vec::new();
   let len = try_ret!(r.read_u16());
   let mut sub = try_ret!(r.sub(len));
@@ -435,8 +632,6 @@ where T: Codec+'a
 
 pub fn read_vec_u24<'a,T>(r: &'a mut Reader)
 -> Option<Vec<T>>
-where T: Codec+'a
-{
   let mut ret: Vec<T> = Vec::new();
   let len = try_ret!(r.read_u24());
   let mut subslice = try_ret!(r.sub(len));
