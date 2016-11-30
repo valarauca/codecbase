@@ -421,6 +421,10 @@ fn test_encode_decode_u8() {
   assert_eq!(words[1].to_str().unwrap(), "World");
 }
     
+/*
+ * Encoding U16
+ *
+ */
 
 pub fn encode_u16(v: u16, bytes: &mut Vec<u8>) {
   bytes.push((v >> 8) as u8);
@@ -429,10 +433,27 @@ pub fn encode_u16(v: u16, bytes: &mut Vec<u8>) {
 pub fn decode_u16(bytes: &[u8]) -> Option<u16> {
   Some(((bytes[0] as u16) << 8) | bytes[1] as u16)
 }
+pub fn encode_vec_u16<'a,T: Codec<'a>>(bytes: &mut Vec<u8>, items: &[T]) {
+  let mut sub: Vec<u8> = Vec::new();
+  for i in items {
+    i.encode(&mut sub);
+  }
+  debug_assert!(sub.len() <= 0xffffff);
+  encode_u16(sub.len() as u16, bytes);
+  bytes.append(&mut sub);
+}
+pub fn read_vec_u16<'a,T: Codec<'a>>(r: &mut Reader<'a>)-> Option<Vec<T>> {
+  let len = try_ret!(r.read_u16());
+  let mut ret: Vec<T> = Vec::with_capacity(len);
+  let mut sub = try_ret!(r.sub(len));
+  while sub.any_left() {
+    ret.push(try_ret!(T::read(&mut sub)));
+  }
+  Some(ret)
+}
 #[test]
 fn test_encode_decode_u16() {
     
-  //test from Reader::init
   let mut x = Vec::new();
   encode_u16(10,&mut x);
   x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
@@ -443,7 +464,6 @@ fn test_encode_decode_u16() {
   assert_eq!(p.len(), 10);
   assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
 
-  //test from the PayLoadU8::read route
   let mut x = Vec::new();
   encode_u16(10,&mut x);
   x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
@@ -452,6 +472,19 @@ fn test_encode_decode_u16() {
   assert_eq!(p.len(),10);
   assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
   assert_eq!(r.any_left(), false);
+  
+  /*
+   * Test Bulk encoding/decoding
+   */
+  let x = PayloadU16::from_slice(b"Hello");
+  let y = PayloadU16::from_slice(b"World");
+  let mut bytes = Vec::new();
+  encode_vec_u16(&mut bytes, &[x,y]);
+  let mut out = Reader::init(bytes.as_slice());
+  let words: Vec<PayloadU16> = read_vec_u16(&mut out).unwrap();
+  assert_eq!(words.len(), 2);
+  assert_eq!(words[0].to_str().unwrap(), "Hello");
+  assert_eq!(words[1].to_str().unwrap(), "World");
 }
 
 
@@ -464,10 +497,27 @@ pub fn encode_u24(v: u32, bytes: &mut Vec<u8>) {
 pub fn decode_u24(bytes: &[u8]) -> Option<u32> {
   Some(((bytes[0] as u32) << 16) | ((bytes[1] as u32) << 8) | bytes[2] as u32)
 }
+pub fn encode_vec_u24<'a,T: Codec<'a>>(bytes: &mut Vec<u8>, items: &[T]) {
+  let mut sub: Vec<u8> = Vec::new();
+  for i in items {
+    i.encode(&mut sub);
+  }
+  debug_assert!(sub.len() <= 0x00ffffff);
+  encode_u24(sub.len() as u32, bytes);
+  bytes.append(&mut sub);
+}
+pub fn read_vec_u24<'a,T: Codec<'a>>(r: &mut Reader<'a>)-> Option<Vec<T>> {
+  let len = try_ret!(r.read_u24());
+  let mut ret: Vec<T> = Vec::with_capacity(len);
+  let mut sub = try_ret!(r.sub(len));
+  while sub.any_left() {
+    ret.push(try_ret!(T::read(&mut sub)));
+  }
+  Some(ret)
+}
 #[test]
 fn test_encode_decode_u24() {
     
-  //test from Reader::init
   let mut x = Vec::new();
   encode_u24(10,&mut x);
   x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
@@ -478,7 +528,6 @@ fn test_encode_decode_u24() {
   assert_eq!(p.len(), 10);
   assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
 
-  //test from the PayLoadU8::read route
   let mut x = Vec::new();
   encode_u24(10,&mut x);
   x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
@@ -487,6 +536,19 @@ fn test_encode_decode_u24() {
   assert_eq!(p.len(),10);
   assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
   assert_eq!(r.any_left(), false);
+  
+  /*
+   * Test Bulk encoding/decoding
+   */
+  let x = PayloadU24::from_slice(b"Hello");
+  let y = PayloadU24::from_slice(b"World");
+  let mut bytes = Vec::new();
+  encode_vec_u24(&mut bytes, &[x,y]);
+  let mut out = Reader::init(bytes.as_slice());
+  let words: Vec<PayloadU24> = read_vec_u24(&mut out).unwrap();
+  assert_eq!(words.len(), 2);
+  assert_eq!(words[0].to_str().unwrap(), "Hello");
+  assert_eq!(words[1].to_str().unwrap(), "World");
 }
 
 
@@ -504,10 +566,27 @@ pub fn decode_u32(bytes: &[u8]) -> Option<u32> {
        bytes[3] as u32
       )
 }
+pub fn encode_vec_u32<'a,T: Codec<'a>>(bytes: &mut Vec<u8>, items: &[T]) {
+  let mut sub: Vec<u8> = Vec::new();
+  for i in items {
+    i.encode(&mut sub);
+  }
+  debug_assert!(sub.len() <= 0xffffffff);
+  encode_u32(sub.len() as u32, bytes);
+  bytes.append(&mut sub);
+}
+pub fn read_vec_u32<'a,T: Codec<'a>>(r: &mut Reader<'a>)-> Option<Vec<T>> {
+  let len = try_ret!(r.read_u32());
+  let mut ret: Vec<T> = Vec::with_capacity(len);
+  let mut sub = try_ret!(r.sub(len));
+  while sub.any_left() {
+    ret.push(try_ret!(T::read(&mut sub)));
+  }
+  Some(ret)
+}
 #[test]
 fn test_encode_decode_u32() {
     
-  //test from Reader::init
   let mut x = Vec::new();
   encode_u32(10,&mut x);
   x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
@@ -518,7 +597,6 @@ fn test_encode_decode_u32() {
   assert_eq!(p.len(), 10);
   assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
 
-  //test from the PayLoadU8::read route
   let mut x = Vec::new();
   encode_u32(10,&mut x);
   x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
@@ -527,6 +605,19 @@ fn test_encode_decode_u32() {
   assert_eq!(p.len(),10);
   assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
   assert_eq!(r.any_left(), false);
+  
+  /*
+   * Test Bulk encoding/decoding
+   */
+  let x = PayloadU32::from_slice(b"Hello");
+  let y = PayloadU32::from_slice(b"World");
+  let mut bytes = Vec::new();
+  encode_vec_u32(&mut bytes, &[x,y]);
+  let mut out = Reader::init(bytes.as_slice());
+  let words: Vec<PayloadU32> = read_vec_u32(&mut out).unwrap();
+  assert_eq!(words.len(), 2);
+  assert_eq!(words[0].to_str().unwrap(), "Hello");
+  assert_eq!(words[1].to_str().unwrap(), "World");
 }
 
 
@@ -557,10 +648,26 @@ pub fn decode_u64(bytes: &[u8]) -> Option<u64> {
        bytes[7] as u64
       )
 }
+pub fn encode_vec_u64<'a,T: Codec<'a>>(bytes: &mut Vec<u8>, items: &[T]) {
+  let mut sub: Vec<u8> = Vec::new();
+  for i in items {
+    i.encode(&mut sub);
+  }
+  encode_u64(sub.len() as u64, bytes);
+  bytes.append(&mut sub);
+}
+pub fn read_vec_u64<'a,T: Codec<'a>>(r: &mut Reader<'a>)-> Option<Vec<T>> {
+  let len = try_ret!(r.read_u64());
+  let mut ret: Vec<T> = Vec::with_capacity(len);
+  let mut sub = try_ret!(r.sub(len));
+  while sub.any_left() {
+    ret.push(try_ret!(T::read(&mut sub)));
+  }
+  Some(ret)
+}
 #[test]
 fn test_encode_decode_u64() {
     
-  //test from Reader::init
   let mut x = Vec::new();
   encode_u64(10,&mut x);
   x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
@@ -571,7 +678,6 @@ fn test_encode_decode_u64() {
   assert_eq!(p.len(), 10);
   assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
 
-  //test from the PayLoadU8::read route
   let mut x = Vec::new();
   encode_u64(10,&mut x);
   x.extend_from_slice(&[0,1,2,3,4,5,6,7,8,9]);
@@ -580,61 +686,18 @@ fn test_encode_decode_u64() {
   assert_eq!(p.len(),10);
   assert_eq!(p.to_slice(), &[0,1,2,3,4,5,6,7,8,9]);
   assert_eq!(r.any_left(), false);
+  
+  /*
+   * Test Bulk encoding/decoding
+   */
+  let x = PayloadU64::from_slice(b"Hello");
+  let y = PayloadU64::from_slice(b"World");
+  let mut bytes = Vec::new();
+  encode_vec_u64(&mut bytes, &[x,y]);
+  let mut out = Reader::init(bytes.as_slice());
+  let words: Vec<PayloadU64> = read_vec_u64(&mut out).unwrap();
+  assert_eq!(words.len(), 2);
+  assert_eq!(words[0].to_str().unwrap(), "Hello");
+  assert_eq!(words[1].to_str().unwrap(), "World");
 }
 
-/*
-pub fn encode_vec_u16<'a,T>(bytes: &mut Vec<u8>, items: &[T])
-  let mut sub: Vec<u8> = Vec::new();
-  for i in items {
-    i.encode(&mut sub);
-  }
-
-  debug_assert!(sub.len() <= 0xffff);
-  encode_u16(sub.len() as u16, bytes);
-  bytes.append(&mut sub);
-}
-pub fn encode_vec_u24<'a,T>(bytes: &'a mut Vec<u8>, items: &'a [T])
-  let mut sub: Vec<u8> = Vec::new();
-  for i in items {
-    i.encode(&mut sub);
-  }
-
-  debug_assert!(sub.len() <= 0xffffff);
-  encode_u24(sub.len() as u32, bytes);
-  bytes.append(&mut sub);
-}
-
-pub fn read_vec_u8<'a,T>(r: &'a mut Reader)
--> Option<Vec<T>>
-  let mut ret: Vec<T> = Vec::new();
-  let len = try_ret!(r.read_u8());
-  let mut sub = try_ret!(r.sub(len));
-
-  while sub.any_left() {
-    ret.push(try_ret!(T::read(&mut sub)));
-  }
-
-  Some(ret)
-}
-
-pub fn read_vec_u16<'a,T>(r: &'a mut Reader)
--> Option<Vec<T>>
-  let mut ret: Vec<T> = Vec::new();
-  let len = try_ret!(r.read_u16());
-  let mut sub = try_ret!(r.sub(len));
-
-  while sub.any_left() {
-    ret.push(try_ret!(T::read(&mut sub)));
-  }
-
-  Some(ret)
-}
-
-pub fn read_vec_u24<'a,T>(r: &'a mut Reader)
--> Option<Vec<T>>
-  let mut ret: Vec<T> = Vec::new();
-  let len = try_ret!(r.read_u24());
-  let mut subslice = try_ret!(r.sub(len));
-  None
-}
-*/
